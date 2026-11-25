@@ -362,7 +362,10 @@ const SUITES = {
         requestAnimationFrame(loop); };
       requestAnimationFrame(loop);
     });
-    const jres = await g.waitFor(() => document.querySelector('.overlay h1')?.textContent.includes('Embaixadinhas'), null, 600000).then(() => true, () => false);
+    // depois de 10 toques encurta o cronômetro (60 s de jogo levariam ~10 min no headless) para testar o fim por tempo
+    await g.waitFor(() => (window.__game.flow.match?.mini?.count ?? 0) >= 10 || window.__game.flow.match?.mini?.done, null, 300000).catch(() => {});
+    await g.ev(() => { const mm = window.__game.flow.match?.mini; if (mm && !mm.done) mm.time = Math.min(mm.time, 1.5); });
+    const jres = await g.waitFor(() => document.querySelector('.overlay h1')?.textContent.includes('Embaixadinhas'), null, 300000).then(() => true, () => false);
     const jc = await g.ev(() => window.__game.flow.match?.mini?.count ?? -1);
     check(jc >= 5, `embaixadinhas encadeadas pelo bot (${jc})`, n);
     check(jres, 'Embaixadinhas termina (bola caiu ou tempo)', n);
@@ -513,6 +516,14 @@ const SUITES = {
     for (const x of notes) console.log('   ', x);
     console.log(notes.failed ? '  ✘ FALHOU' : '  ✔ OK', `(${secs}s)`);
   }
+  // acumula com rodadas anteriores (por suíte) para o relatório final
+  const store = path.join(ROOT, 'docs', 'qa', 'results.json');
+  let prev = {};
+  try { prev = JSON.parse(fs.readFileSync(store, 'utf8')); } catch { /* primeira rodada */ }
+  for (const r of results) prev[r.name] = { ...r, at: new Date().toISOString() };
+  if (!process.env.QA_NO_MERGE) fs.writeFileSync(store, JSON.stringify(prev, null, 1));
+  const order = Object.keys(SUITES);
+  results.splice(0, results.length, ...order.filter((k) => prev[k]).map((k) => prev[k]));
   const ok = results.filter((r) => r.ok).length;
   const md = ['# QA ponta a ponta', '', `Executado em ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC com \`node scripts/qa/run.cjs\` (Chromium headless, build de produção).`, '',
     `**${ok}/${results.length} suítes OK.** O monitor de invariantes roda a cada quadro em todas as suítes (bola/jogadores com posição válida e dentro do mundo,`,
