@@ -71,19 +71,20 @@ const SUITES = {
     check(await g.scene() === 'menu', 'ENTER no título abre o menu', n);
     // duplo clique de mouse em "Opções" não pode enfileirar duas transições
     await g.waitFor(() => !window.__game.flow.busy, null, 60000);
-    const opt = await g.page.$$('.menu .btn');
+    const opt = await g.page.$$('.mainmenu .mtile');
     await opt[6].dblclick();
     await g.waitScene('options', 60000); await sleep(2500);
     const fades = await g.ev(() => window.__game.flow.fadeLog.filter((x) => x.endsWith('início')).length);
     check(fades === 2, `duplo clique gera uma única transição (${fades - 1})`, n);
     await g.key('Escape'); await g.waitScene('menu', 60000);
-    const items = await g.ev(() => [...document.querySelectorAll('.menu .btn')].map((b) => b.textContent.trim()));
+    const items = await g.ev(() => [...document.querySelectorAll('.mainmenu .mtile')].map((b) => b.textContent.trim()));
     check(items.length === 8, `menu com 8 opções (${items.join(' | ')})`, n);
     const expect = ['ctrl', 'teams', 'teams', 'teams', 'challenges', 'achievements', 'options', 'credits'];
     for (let i = 0; i < expect.length; i++) {
       await g.waitScene('menu');
-      await sleep(300);
-      for (let k = 0; k < i; k++) { await g.key('ArrowDown'); await sleep(700); }
+      // o menu ignora o primeiro quadro depois de montado; no headless um quadro pode levar ~0,5 s
+      await g.waitFor(() => window.__game.flow.nav && window.__game.flow.nav.armed, null, 20000).catch(() => {}); await sleep(400);
+      for (let k = 0; k < i; k++) { await g.key('ArrowRight'); await sleep(700); }
       await g.key('Enter');
       try { await g.waitScene(expect[i], 60000); check(true, `opção ${i + 1} → ${expect[i]}`, n); } catch { check(false, `opção ${i + 1} deveria abrir ${expect[i]} (está em ${await g.scene()})`, n); }
       await sleep(600);
@@ -281,7 +282,7 @@ const SUITES = {
       if (round === 1) {
         await g.page.reload(); await g.waitFor(() => window.__game?.flow.scene === 'title', null, 120000);
         await g.ev(() => window.__game.flow.mainMenu()); await g.waitScene('menu');
-        const label = await g.ev(() => document.querySelectorAll('.menu .btn')[1].textContent);
+        const label = await g.ev(() => document.querySelectorAll('.mainmenu .mtile')[1].textContent);
         check(/Continuar/.test(label), `progresso da copa salvo após recarregar ("${label.trim()}")`, n);
         await g.ev(() => window.__game.flow.cupScreen()); await g.waitScene('cup');
       }
@@ -505,7 +506,7 @@ const SUITES = {
     check(true, 'toque no título abre o menu', n);
     check(await noOverflow(), 'menu sem rolagem da página', n);
     await g.shot('iphone_menu');
-    await tap('.menu .btn'); await g.waitScene('teams');
+    await tap('.mainmenu .mtile'); await g.waitScene('teams');
     check(true, 'Amistoso vai direto para a seleção de times (sem tela de controles)', n);
     const go = await g.center('.tbar .go');
     check(go && go.vis && go.y + go.h / 2 <= 391 && go.x + go.w / 2 <= 845, 'botão COMEÇAR visível na tela', n);
@@ -546,7 +547,7 @@ const SUITES = {
     check(stick.mx > 0.5, `joystick move para a direita (mx=${stick.mx.toFixed(2)})`, n);
     await g.shot('iphone_stick');
     // segundo dedo no CHUTE enquanto o primeiro segura o joystick (multitoque) — em modo ATAQUE
-    await g.ev(() => { const m = window.__game.flow.match; m.sp = null; m.state = 'play'; m.stateT = 0; m.takeBall(m.all.find((x) => x.device === 'kb')); });
+    await g.ev(() => { const m = window.__game.flow.match; m.timers = []; m.sp = null; m.state = 'play'; m.stateT = 0; m.takeBall(m.all.find((x) => x.device === 'kb')); });
     await g.waitFor(() => document.getElementById('touch').classList.contains('atk'), null, 20000).catch(() => {});
     await sleep(500);
     const sh = await g.center('#touch .b-shoot');
@@ -562,19 +563,19 @@ const SUITES = {
     const me1 = await g.ev(() => { const p = window.__game.flow.match.all.find((x) => x.device === 'kb'); return p && { x: p.pos.x, z: p.pos.z }; });
     check(me1 && Math.hypot(me1.x - me0.x, me1.z - me0.z) > 0.5, 'jogador se moveu com o joystick', n);
     // ATAQUE x DEFESA: entrega a bola para mim e depois para o adversário e confere o layout dos botões
-    const layout = () => g.ev(() => { const r = document.getElementById('touch'); const vis = (c) => getComputedStyle(document.querySelector('#touch .' + c)).opacity > 0.5;
+    const layout = () => g.ev(() => { const r = document.getElementById('touch'); const vis = (c) => getComputedStyle(document.querySelector('#touch .' + c)).opacity > 0.3; /* apagado = 0,5; escondido = 0 */
       return { atk: r.classList.contains('atk'), def: r.classList.contains('def'), pass: document.querySelector('#touch .b-pass span').textContent,
         tackle: vis('b-tackle'), trick: vis('b-trick'), lob: vis('b-lob'), shoot: vis('b-shoot'), big: document.querySelector('#touch .b-tackle').getBoundingClientRect().width }; });
-    await g.ev(() => { const m = window.__game.flow.match; m.sp = null; m.state = 'play'; m.stateT = 0; m.takeBall(m.all.find((x) => x.device === 'kb')); });
+    await g.ev(() => { const m = window.__game.flow.match; m.timers = []; m.sp = null; m.state = 'play'; m.stateT = 0; m.takeBall(m.all.find((x) => x.device === 'kb')); });
     await g.waitFor(() => document.getElementById('touch').classList.contains('atk'), null, 20000).catch(() => {});
-    await sleep(350);
-    const A1 = await layout();
+    let A1 = await layout();
+    for (let k = 0; k < 12 && !(A1.atk && A1.trick && !A1.tackle); k++) { await sleep(500); A1 = await layout(); } // espera as transições de CSS
     check(A1.atk && A1.pass === 'PASSE' && A1.trick && A1.lob && !A1.tackle, `ATAQUE: PASSE/CHUTE/LENÇOL/FIRULA, sem CARRINHO (${JSON.stringify(A1)})`, n);
     await g.shot('iphone_ataque');
-    await g.ev(() => { const m = window.__game.flow.match; const me = m.all.find((x) => x.device === 'kb'); const op = m.all.find((x) => x.team !== me.team && x.onField && !x.isGK); m.sp = null; m.state = 'play'; m.stateT = 0; m.takeBall(op); });
+    await g.ev(() => { const m = window.__game.flow.match; const me = m.all.find((x) => x.device === 'kb'); const op = m.all.find((x) => x.team !== me.team && x.onField && !x.isGK); m.timers = []; m.sp = null; m.state = 'play'; m.stateT = 0; m.takeBall(op); });
     await g.waitFor(() => document.getElementById('touch').classList.contains('def'), null, 20000).catch(() => {});
-    await sleep(700);
-    const D1 = await layout();
+    let D1 = await layout();
+    for (let k = 0; k < 12 && !(D1.def && D1.tackle && !D1.trick); k++) { await sleep(500); D1 = await layout(); }
     check(D1.def && D1.pass === 'TROCAR' && D1.tackle && !D1.trick && !D1.lob && D1.big > A1.big, `DEFESA: CARRINHO grande, TROCAR, sem FIRULA/LENÇOL (${JSON.stringify(D1)})`, n);
     await g.shot('iphone_defesa');
     // pausa pelo botão e volta tocando em "Continuar"
@@ -603,6 +604,189 @@ const SUITES = {
     const pc = await g.ev(() => ({ touch: window.__game.input.touch, overlay: !!document.getElementById('touch'), plat: document.querySelector('.plat')?.textContent }));
     check(!pc.touch && !pc.overlay && pc.plat === 'VERSÃO PC', 'pc.html: versão PC sem controles de toque', n);
   },
+
+  /** Bateria de toques: cada botão, em cada situação (ATAQUE / APOIO / DEFESA), com toque rápido e segurado, medindo o efeito no jogo. */
+  async toques(g, n) {
+    let tid = 10;
+    const ctr = (cls) => g.center('#touch .' + cls);
+    const press = async (x, y, hold = 0) => { const id = tid++; await g.touch('touchStart', [{ x, y, id }]); if (hold) await sleep(hold); await g.touch('touchEnd', []); };
+    const tapBtn = async (cls, hold = 0) => { const c = await ctr(cls); if (!c) throw new Error('sem botão ' + cls); await press(c.x, c.y, hold); };
+    const until = (fn, arg, ms = 25000) => g.waitFor(fn, arg, ms).then(() => true, () => false);
+    // cenários montados dentro do jogo
+    const scene = (kind) => g.ev((kind) => {
+      const m = window.__game.flow.match, b = m.ball;
+      const me0 = m.all.find((x) => x.device === 'kb');
+      const tm = me0.team, opp = tm.opp, dir = tm.dir;
+      m.sp = null; m.state = 'play'; m.stateT = 0; m.paused = false;
+      // cancela gols/replays agendados por chutes de testes anteriores (senão a cena muda no meio do teste)
+      m.timers = []; m.hud.cinema(false); m.hud.show(true); m.replay?.stop?.(); m.slowmo = 1;
+      for (const p of m.all) { p.kick = null; p.stun = 0; p.sliding = 0; p.vel.set(0, 0, 0); }
+      // adversários longe (exceto no cenário de defesa)
+      opp.field.forEach((o, i) => { if (!o.isGK) { o.pos.set(-dir * 14, 0, -8 + i * 5); o.sync(); } });
+      const me = me0;
+      me.pos.set(0, 0, 0); me.yaw = Math.atan2(dir, 0); me.sync();
+      b.owner = null; b.held = false; b.vel.set(0, 0, 0); b.pos.set(0, 0.11, 0); b.lastTouch = null; m.passTo = null;
+      if (kind === 'atk') { m.takeBall(me); }
+      if (kind === 'sup') { const mate = tm.field.find((x) => x !== me && !x.isGK); mate.pos.set(-dir * 6, 0, 3); mate.sync(); m.takeBall(mate); }
+      for (const p of m.all) if (p.device === 'qa') p.device = null;
+      // adversário com a bola "congelado" (sem IA) para o teste não depender do que a CPU decide
+      if (kind === 'def') { const o = opp.field.find((x) => !x.isGK); o.pos.set(dir * 2.2, 0, 0.4); o.vel.set(0, 0, 0); o.sync(); m.takeBall(o); o.device = 'qa'; o.protectT = 0; }
+      if (kind === 'deffar') { const o = opp.field.find((x) => !x.isGK); o.pos.set(dir * 9, 0, 4); o.sync(); m.takeBall(o); }
+      if (b.owner) b.pos.copy(b.owner.pos).addScaledVector(b.owner.forward, 0.45).setY(0.11);
+      window.__qaMe = me;
+      return { dir };
+    }, kind);
+    const mode = () => g.ev(() => window.__game.touch.mode);
+    const waitMode = (md) => until((md) => window.__game.touch.mode === md && !document.getElementById('touch').classList.contains('swap'), md, 15000);
+
+    // ---- chega na partida pelo toque
+    const tap = async (sel) => { const c = await g.center(sel); await g.page.touchscreen.tap(c.x, c.y); };
+    await tap('.title-screen'); await g.waitScene('menu');
+    await tap('.mainmenu .mtile'); await g.waitScene('teams');
+    await g.ev(() => { window.__game.flow.setup.arena = 'copacabana'; });
+    await tap('.tbar .go');
+    await g.waitFor(() => window.__game.flow.scene === 'match' && window.__game.flow.match, null, 180000);
+    await g.ev(() => { const m = window.__game.flow.match; m.hud.cinema(false); m.hud.show(true); m.beginKickoff(m.kickoffTeam); });
+    await g.waitFor(() => ['kickoff', 'play'].includes(window.__game.flow.match.state), null, 60000);
+    await sleep(800);
+    // troca automática desligada nos testes de botão (testada à parte no fim)
+    await g.ev(() => { window.__qaSettings = window.__game.settings; window.__qaSettings.autoSwitch = false; });
+
+    // ---- ATAQUE (com a bola)
+    await scene('atk'); check(await waitMode('atk'), 'ATAQUE: layout aparece com a bola', n);
+    await tapBtn('b-pass');
+    check(await until(() => { const m = window.__game.flow.match; return m.ball.lastTouch === window.__qaMe && m.ball.owner !== window.__qaMe && m.ball.speed > 2; }), 'PASSE (toque rápido) passa a bola', n);
+    await scene('atk'); await waitMode('atk');
+    const dir = (await scene('atk')).dir; await waitMode('atk');
+    await tapBtn('b-shoot');
+    const s1 = await until((d) => { const b = window.__game.flow.match.ball; return b.lastTouch === window.__qaMe && b.speed > 6 && Math.sign(b.vel.x) === d; }, dir);
+    const v1 = await g.ev(() => window.__game.flow.match.ball.speed);
+    check(s1, `CHUTE (toque rápido) chuta para o gol (${v1.toFixed(1)} m/s)`, n);
+    await scene('atk'); await waitMode('atk');
+    let maxHold = 0;
+    const c = await ctr('b-shoot'); const id = tid++;
+    await g.touch('touchStart', [{ x: c.x, y: c.y, id }]);
+    for (let k = 0; k < 8; k++) { await sleep(150); maxHold = Math.max(maxHold, await g.ev(() => window.__qaMe.shootHold)); }
+    await g.touch('touchEnd', []);
+    const s2 = await until(() => { const b = window.__game.flow.match.ball; return b.lastTouch === window.__qaMe && b.speed > 6; });
+    check(s2 && maxHold > 0.2, `CHUTE segurado carrega a força (${Math.round(maxHold * 100)}%) e chuta`, n);
+    await scene('atk'); await waitMode('atk');
+    await tapBtn('b-lob');
+    check(await until(() => { const b = window.__game.flow.match.ball; return b.lastTouch === window.__qaMe && b.pos.y > 0.9; }), 'LENÇOL levanta a bola', n);
+    await scene('atk'); await waitMode('atk');
+    await tapBtn('b-trick');
+    check(await until(() => { const k = window.__qaMe.kick; return !!k && ['juggle', 'sombrero_flick'].includes(k.kind) || window.__game.flow.match.ball.pos.y > 0.5; }), 'FIRULA faz embaixadinha/chapéu', n);
+    // CORRER: segura o joystick e compara a velocidade com e sem CORRER
+    await scene('atk'); await waitMode('atk');
+    await g.ev(() => window.__game.input.setStick({ x: 0.6, y: 0 }));
+    await sleep(1500);
+    const vWalk = await g.ev(() => window.__qaMe.vel.length());
+    const sc = await ctr('b-sprint'); const sid = tid++;
+    await g.touch('touchStart', [{ x: sc.x, y: sc.y, id: sid }]); await sleep(1500);
+    const vRun = await g.ev(() => window.__qaMe.vel.length());
+    await g.touch('touchEnd', []); await g.ev(() => window.__game.input.setStick(null));
+    check(vRun > vWalk * 1.1, `CORRER aumenta a velocidade (${vWalk.toFixed(1)} → ${vRun.toFixed(1)} m/s)`, n);
+    // FOGO: apagado sem barra (com dica); aceso e funcionando com a barra cheia
+    await scene('atk'); await waitMode('atk');
+    await g.ev(() => { const m = window.__game.flow.match; window.__qaMe.team.heat = 0; window.__qaMe.team.fire = 0; });
+    await sleep(400);
+    check(await g.ev(() => document.querySelector('#touch .b-fire').classList.contains('off')), 'FOGO apagado com a barra vazia', n);
+    await tapBtn('b-fire'); await sleep(300);
+    check(await g.ev(() => window.__game.touch.log.includes('hint') && document.querySelector('#touch .t-hint').textContent.length > 5), 'tocar em botão apagado mostra uma dica', n);
+    await g.ev(() => { window.__qaMe.team.heat = 1; }); await sleep(500);
+    await tapBtn('b-fire');
+    check(await until(() => window.__qaMe.team.fire > 0), 'FOGO com a barra cheia ativa o Modo Fogo', n);
+    await g.ev(() => { window.__qaMe.team.fire = 0; });
+    await g.shot('toques_ataque');
+
+    // ---- companheiro ganha a bola: o controle passa para ele e o layout continua ATAQUE
+    await scene('sup');
+    check(await until(() => { const m = window.__game.flow.match; return m.ball.owner && m.ball.owner.device === 'kb'; }), 'companheiro com a bola recebe o controle', n);
+    check(await waitMode('atk'), 'layout ATAQUE para quem está com a bola', n);
+    // passe em voo do meu time: layout não pula para DEFESA
+    await scene('atk'); await waitMode('atk');
+    await tapBtn('b-pass'); await sleep(250);
+    check((await mode()) === 'atk', 'passe em andamento mantém o layout ATAQUE', n);
+
+    // ---- DEFESA (adversário com a bola)
+    await scene('def'); check(await waitMode('def'), 'DEFESA: layout aparece com o adversário na bola', n);
+    await sleep(900);
+    const ld = await g.ev(() => ({ pass: document.querySelector('#touch .b-pass span').textContent, press: getComputedStyle(document.querySelector('#touch .b-press')).opacity > 0.5, tackle: document.querySelector('#touch .b-tackle').getBoundingClientRect().width }));
+    check(ld.pass === 'TROCAR' && ld.press && ld.tackle > 60, `TROCAR, MARCAR e CARRINHO grande (${JSON.stringify(ld)})`, n);
+    await g.shot('toques_defesa');
+    // toque no CARRINHO no mesmo instante em que o layout DEFESA está confirmado (a CPU não tem tempo de perder a bola)
+    await g.ev(() => { const pad = document.querySelector('#touch .t-btns'); const r = document.querySelector('#touch .b-tackle').getBoundingClientRect();
+      const o = { pointerId: 77, pointerType: 'touch', isPrimary: false, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true };
+      pad.dispatchEvent(new PointerEvent('pointerdown', o)); setTimeout(() => pad.dispatchEvent(new PointerEvent('pointerup', o)), 120); });
+    check(await until(() => window.__qaMe.sliding > 0 || (window.__qaMe.kick && /tackle/.test(window.__qaMe.kick.kind))), 'CARRINHO dá o carrinho', n);
+    await scene('deffar'); await waitMode('def');
+    const d0 = await g.ev(() => { const o = window.__game.flow.match.ball.owner; return o ? o.pos.distanceTo(window.__qaMe.pos) : 99; });
+    const pc = await ctr('b-press'); const pid = tid++;
+    await g.ev(() => { const o = window.__game.flow.match.ball.owner; window.__qaOpp = o; o.vel.set(0, 0, 0); });
+    await g.touch('touchStart', [{ x: pc.x, y: pc.y, id: pid }]); await sleep(2500);
+    const d1 = await g.ev(() => window.__qaOpp.pos.distanceTo(window.__qaMe.pos));
+    await g.touch('touchEnd', []);
+    check(d1 < d0 - 1, `MARCAR corre sozinho até o adversário (${d0.toFixed(1)} → ${d1.toFixed(1)} m)`, n);
+    await scene('deffar'); await waitMode('def'); await sleep(600);
+    const before = await g.ev(() => window.__game.flow.match.all.find((x) => x.device === 'kb').data.id);
+    let swapped = false;
+    for (let k = 0; k < 3 && !swapped; k++) { await tapBtn('b-pass'); swapped = await until((b) => window.__game.flow.match.all.find((x) => x.device === 'kb')?.data.id !== b, before, 8000); }
+    check(swapped, 'TROCAR troca o jogador controlado', n);
+
+    // ---- toques imprecisos e rápidos
+    await scene('atk'); await waitMode('atk');
+    const a = await ctr('b-pass'), bS = await ctr('b-shoot');
+    const logN = await g.ev(() => window.__game.touch.log.length);
+    await press((a.x + bS.x) / 2, (a.y + bS.y) / 2 + 6);
+    await sleep(300);
+    check((await g.ev(() => window.__game.touch.log.length)) > logN, 'toque entre dois botões aciona o mais próximo', n);
+    await scene('atk'); await waitMode('atk');
+    for (let k = 0; k < 6; k++) await tapBtn('b-trick');
+    await sleep(600);
+    check((await g.ev(() => window.__game.touch.log.filter((x) => x.startsWith('trick')).length)) >= 6, 'seis toques rápidos seguidos são todos registrados', n);
+    // dois dedos: joystick + botão, e dois botões ao mesmo tempo
+    await scene('atk'); await waitMode('atk');
+    const sp = await ctr('b-sprint'), sh = await ctr('b-shoot');
+    await g.touch('touchStart', [{ x: 150, y: 290, id: 90 }]);
+    await g.touch('touchMove', [{ x: 230, y: 290, id: 90 }]);
+    await g.touch('touchStart', [{ x: 230, y: 290, id: 90 }, { x: sp.x, y: sp.y, id: 91 }]);
+    await g.touch('touchStart', [{ x: 230, y: 290, id: 90 }, { x: sp.x, y: sp.y, id: 91 }, { x: sh.x, y: sh.y, id: 92 }]);
+    await sleep(300);
+    const three = await g.ev(() => { const i = window.__game.input; return { mx: i.state('kb').mx, run: i.held('kb', 'sprint'), shoot: i.held('kb', 'shoot') }; });
+    await g.touch('touchEnd', []);
+    check(three.mx > 0.5 && three.run && three.shoot, `três dedos: joystick + CORRER + CHUTE (${JSON.stringify(three)})`, n);
+    await sleep(300);
+    check(await g.ev(() => !window.__game.input.held('kb', 'sprint') && !window.__game.input.held('kb', 'shoot')), 'soltar todos os dedos solta tudo', n);
+    // ---- jogabilidade nova
+    await scene('atk'); await waitMode('atk');
+    check(await g.ev(() => window.__qaMe.protectT > 0), 'proteção ao dominar a bola', n);
+    const passer = await g.ev(() => window.__qaMe.data.id);
+    await tapBtn('b-pass');
+    check(await until((id) => { const p = window.__game.flow.match.all.find((x) => x.data.id === id); return p.runT > 0 && p.runTarget.length() > 0; }, passer), 'tabela: quem passou dispara para receber de volta', n);
+    check(await until((id) => { const m = window.__game.flow.match; const p = m.all.find((x) => x.data.id === id); return p.vel.length() > 2; }, passer), 'tabela: o passador corre para o espaço', n);
+    // bola aérea chegando no jogador: aviso CHUTE! e botão pisca
+    await scene('none');
+    await g.ev(() => { const m = window.__game.flow.match, b = m.ball, me = window.__qaMe; const mate = me.team.field.find((x) => x !== me && !x.isGK);
+      b.pos.set(me.pos.x - 6 * me.team.dir, 2.6, me.pos.z); b.vel.set(6 * me.team.dir, 0.5, 0); b.lastTouch = mate; b.owner = null; });
+    check(await until(() => window.__game.flow.match.aerialCue && document.getElementById('touch').classList.contains('aerial'), null, 15000), 'bola aérea ao alcance: aviso CHUTE! e botão piscando', n);
+    await g.shot('toques_aerea');
+    // MARCAR colado no adversário dá o bote sozinho
+    await scene('def'); await waitMode('def'); await sleep(600);
+    await g.ev(() => { const o = window.__game.flow.match.ball.owner; o.pos.copy(window.__qaMe.pos).add({ x: window.__qaMe.team.dir * 0.9, y: 0, z: 0 }); o.vel.set(0, 0, 0); o.protectT = 0; o.sync(); window.__qaMe.tackleCd = 0; });
+    const pr = await ctr('b-press'); const prid = tid++;
+    await g.touch('touchStart', [{ x: pr.x, y: pr.y, id: prid }]);
+    const bote = await until(() => window.__qaMe.tackleCd > 0, null, 15000);
+    await g.touch('touchEnd', []);
+    check(bote, 'MARCAR colado no adversário dá o bote', n);
+
+    // troca automática: adversário com a bola longe de mim e perto de um companheiro
+    await g.ev(() => { window.__qaSettings.autoSwitch = true; });
+    await scene('deffar');
+    await g.ev(() => { const m = window.__game.flow.match; const me = window.__qaMe; const o = m.ball.owner; const mate = me.team.field.find((x) => x !== me && !x.isGK); mate.pos.copy(o.pos).add({ x: -me.team.dir * 1.5, y: 0, z: 0 }); mate.sync(); me.pos.set(-me.team.dir * 8, 0, -5); me.sync(); });
+    check(await until(() => window.__game.flow.match.all.find((x) => x.device === 'kb') !== window.__qaMe), 'troca automática passa o controle para quem está perto da bola', n);
+    const log = await g.ev(() => window.__game.touch.log.join(' '));
+    n.push('  registro de toques: ' + log.slice(0, 400));
+  },
 };
 
 (async () => {
@@ -613,7 +797,7 @@ const SUITES = {
     let g;
     console.log('▶', name);
     try {
-      g = await open({ gamepads: name === 'twoplayers' ? 2 : 0, iphone: name === 'iphone' });
+      g = await open({ gamepads: name === 'twoplayers' ? 2 : 0, iphone: name === 'iphone' || name === 'toques' });
       await SUITES[name](g, notes);
     } catch (e) {
       notes.push('✘ exceção: ' + String(e.message || e).split('\n')[0]); notes.failed = true;
