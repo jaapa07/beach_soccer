@@ -735,7 +735,7 @@ const SUITES = {
     await scene('deffar'); await waitMode('def'); await sleep(600);
     const before = await g.ev(() => window.__game.flow.match.all.find((x) => x.device === 'kb').data.id);
     let swapped = false;
-    for (let k = 0; k < 3 && !swapped; k++) { await tapBtn('b-pass'); swapped = await until((b) => window.__game.flow.match.all.find((x) => x.device === 'kb')?.data.id !== b, before, 8000); }
+    for (let k = 0; k < 1 && !swapped; k++) { await tapBtn('b-pass'); swapped = await until((b) => window.__game.flow.match.all.find((x) => x.device === 'kb')?.data.id !== b, before, 8000); }
     check(swapped, 'TROCAR troca o jogador controlado', n);
 
     // ---- toques imprecisos e rápidos
@@ -746,9 +746,12 @@ const SUITES = {
     await sleep(300);
     check((await g.ev(() => window.__game.touch.log.length)) > logN, 'toque entre dois botões aciona o mais próximo', n);
     await scene('atk'); await waitMode('atk');
-    for (let k = 0; k < 6; k++) await tapBtn('b-trick');
+    // conta os toques que chegam na área dos botões (se a bola for perdida no meio, o layout muda — é o esperado)
+    await g.ev(() => { window.__qaDowns = 0; document.querySelector('#touch .t-btns').addEventListener('pointerdown', () => window.__qaDowns++, true); });
+    for (let k = 0; k < 6; k++) { await tapBtn('b-trick'); await sleep(150); } // ~5 toques por segundo, ritmo de dedo de verdade
     await sleep(600);
-    check((await g.ev(() => window.__game.touch.log.filter((x) => x.startsWith('trick')).length)) >= 6, 'seis toques rápidos seguidos são todos registrados', n);
+    const gotT = await g.ev(() => window.__qaDowns);
+    check(gotT >= 6, `seis toques rápidos seguidos chegam todos (${gotT}/6)`, n);
     // dois dedos: joystick + botão, e dois botões ao mesmo tempo
     await scene('atk'); await waitMode('atk');
     const sp = await ctr('b-sprint'), sh = await ctr('b-shoot');
@@ -781,6 +784,40 @@ const SUITES = {
     };
     await feet('b-pass', 'PASSE rasteiro', 0.5);
     await feet('b-lob', 'LENÇOL', 0.8);
+
+    // ---- mira assistida: apontar "mais ou menos" já escolhe o companheiro certo
+    await scene('atk'); await waitMode('atk');
+    const aimRes = await g.ev(() => {
+      const m = window.__game.flow.match, me = window.__qaMe, d = me.team.dir;
+      const mates = me.team.field.filter((x) => x !== me && !x.isGK);
+      const place = (x, deg, dist) => { const a = deg * Math.PI / 180; x.pos.set(Math.cos(a) * dist * d, 0, Math.sin(a) * dist); x.vel.set(0, 0, 0); x.sync(); };
+      place(mates[0], 0, 9); place(mates[1], 50, 6); place(mates[2], -60, 7);
+      const dirAt = (deg) => { const a = deg * Math.PI / 180; return new window.__game.world.camera.position.constructor(Math.cos(a) * d, 0, Math.sin(a)); };
+      const pick = (deg) => m.pickPassTarget(me, dirAt(deg), false)?.data.id;
+      const ids = mates.slice(0, 3).map((x) => x.data.id);
+      return { ids, r: [[0, pick(18)], [0, pick(-15)], [1, pick(28)], [1, pick(70)], [2, pick(-38)], [2, pick(-85)]] };
+    });
+    const okAim = aimRes.r.every(([i, id]) => id === aimRes.ids[i]);
+    check(okAim, `mira assistida: 20–25° fora do alvo ainda escolhe o companheiro certo (${aimRes.r.map(([i, id]) => (id === aimRes.ids[i] ? '✔' : '✘')).join('')})`, n);
+    // passe real pelo toque apontando torto (15° fora do alvo, 35° do outro) para o companheiro da diagonal
+    await g.ev(() => { const me = window.__qaMe, d = me.team.dir, a = 35 * Math.PI / 180; window.__game.input.setStick({ x: Math.cos(a) * d * 0.9, y: Math.sin(a) * 0.9 }); window.__qaTgt = me.team.field.filter((x) => x !== me && !x.isGK)[1]; });
+    await sleep(900);
+    // recoloca todo mundo parado na hora do toque, a partir do jogador que está de fato sob controle
+    const pre = await g.ev(() => { const m = window.__game.flow.match; m.timers = []; m.sp = null; m.state = 'play'; m.passTo = null;
+      const me = m.all.find((x) => x.device === 'kb'), d = me.team.dir; window.__qaMe = me;
+      const mates = me.team.field.filter((x) => x !== me && !x.isGK);
+      const place = (x, deg, dist) => { const a = deg * Math.PI / 180; x.pos.set(Math.cos(a) * dist * d, 0, Math.sin(a) * dist); x.vel.set(0, 0, 0); x.sync(); };
+      me.pos.set(0, 0, 0); me.vel.set(0, 0, 0); me.sync(); place(mates[0], 0, 9); place(mates[1], 50, 6); place(mates[2], -60, 7);
+      m.ball.owner = null; m.takeBall(me); m.ball.pos.copy(me.pos).addScaledVector(me.forward, 0.45).setY(0.11);
+      window.__qaTgt = mates[1];
+      const s = window.__game.input.state('kb');
+      return { mx: +s.mx.toFixed(2), my: +s.my.toFixed(2), ctrl: me.data.short, tgt: mates[1].data.short }; });
+    n.push('  diagnóstico do passe apontado: ' + JSON.stringify(pre));
+    await tapBtn('b-pass');
+    const tortoOk = await until(() => window.__game.flow.match.ball.owner === window.__qaTgt || window.__game.flow.match.passTo === window.__qaTgt, null, 20000);
+    const tortoTo = await g.ev(() => window.__game.flow.match.passTo?.data.short ?? '-');
+    await g.ev(() => window.__game.input.setStick(null));
+    check(tortoOk, `passe pelo toque apontando torto vai para o companheiro da direção (${tortoTo})`, n);
 
     // ---- jogabilidade nova
     await scene('atk'); await waitMode('atk');

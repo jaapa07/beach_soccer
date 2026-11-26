@@ -1,6 +1,6 @@
 # QA ponta a ponta
 
-Executado em 2026-11-26 12:27 UTC com `node scripts/qa/run.cjs` (Chromium headless, build de produção).
+Executado em 2026-11-26 14:04 UTC com `node scripts/qa/run.cjs` (Chromium headless, build de produção).
 
 **19/19 suítes OK.** O monitor de invariantes roda a cada quadro em todas as suítes (bola/jogadores com posição válida e dentro do mundo,
 bola perto do dono, controle duplicado, time humano sem jogador, estados presos, bola morta sem ninguém ir buscar).
@@ -9,10 +9,10 @@ bola perto do dono, controle duplicado, time humano sem jogador, estados presos,
 |---|---|---|
 | menus | ✔ OK | 246s |
 | options | ✔ OK | 45s |
-| fullmatch | ✔ OK | 141s |
+| fullmatch | ✔ OK | 122s |
 | arenas | ✔ OK | 132s |
-| human | ✔ OK | 166s |
-| twoplayers | ✔ OK | 54s |
+| human | ✔ OK | 162s |
+| twoplayers | ✔ OK | 50s |
 | setpieces | ✔ OK | 61s |
 | fouls | ✔ OK | 60s |
 | pausemenu | ✔ OK | 37s |
@@ -24,7 +24,7 @@ bola perto do dono, controle duplicado, time humano sem jogador, estados presos,
 | memory | ✔ OK | 108s |
 | career | ✔ OK | 161s |
 | mobile | ✔ OK | 34s |
-| iphone | ✔ OK | 178s |
+| iphone | ✔ OK | 194s |
 | toques | ✔ OK | 333s |
 
 ## menus
@@ -59,8 +59,8 @@ bola perto do dono, controle duplicado, time humano sem jogador, estados presos,
 ## fullmatch
 
 - ✔ partida de 3 períodos termina na tela de resultado
-- ✔ ciclo de estados completo (play, replay, halftime, goal, kickoff, setpiece, fulltime)
-- ✔ houve chutes (17,6)
+- ✔ ciclo de estados completo (play, goal, kickoff, periodEnd, halftime, replay, fulltime)
+- ✔ houve chutes (8,8)
 
 ## arenas
 
@@ -69,8 +69,8 @@ bola perto do dono, controle duplicado, time humano sem jogador, estados presos,
 
 ## human
 
-- ✔ jogador humano executou ações pelo teclado (50)
-- ✔ time humano chutou a gol (5)
+- ✔ jogador humano executou ações pelo teclado (45)
+- ✔ time humano chutou a gol (3)
 - ✔ jogador controlado se movimentou
 
 ## twoplayers
@@ -196,10 +196,10 @@ bola perto do dono, controle duplicado, time humano sem jogador, estados presos,
 - ✔ ATAQUE: layout aparece com a bola
 - ✔ PASSE (toque rápido) passa a bola
 - ✔ CHUTE (toque rápido) chuta para o gol (19.9 m/s)
-- ✔ CHUTE segurado carrega a força (56%) e chuta
+- ✔ CHUTE segurado carrega a força (50%) e chuta
 - ✔ LENÇOL levanta a bola
 - ✔ FIRULA faz embaixadinha/chapéu
-- ✔ CORRER aumenta a velocidade (2.7 → 5.1 m/s)
+- ✔ CORRER aumenta a velocidade (2.1 → 5.0 m/s)
 - ✔ FOGO apagado com a barra vazia
 - ✔ tocar em botão apagado mostra uma dica
 - ✔ FOGO com a barra cheia ativa o Modo Fogo
@@ -212,17 +212,20 @@ bola perto do dono, controle duplicado, time humano sem jogador, estados presos,
 - ✔ MARCAR corre sozinho até o adversário (9.3 → 6.2 m)
 - ✔ TROCAR troca o jogador controlado
 - ✔ toque entre dois botões aciona o mais próximo
-- ✔ seis toques rápidos seguidos são todos registrados
+- ✔ seis toques rápidos seguidos chegam todos (6/6)
 - ✔ três dedos: joystick + CORRER + CHUTE ({"mx":1,"run":true,"shoot":true})
 - ✔ soltar todos os dedos solta tudo
 - ✔ PASSE rasteiro: chega no pé do companheiro (ele andou 0.00 m depois do passe)
 - ✔ LENÇOL: chega no pé do companheiro (ele andou 0.00 m depois do passe)
+- ✔ mira assistida: 20–25° fora do alvo ainda escolhe o companheiro certo (✔✔✔✔✔✔)
+-   diagnóstico do passe apontado: {"mx":0.82,"my":0.57,"ctrl":"CAJU","tgt":"ZÉ COQUEIRO"}
+- ✔ passe pelo toque apontando torto vai para o companheiro da direção (ZÉ COQUEIRO)
 - ✔ proteção ao dominar a bola
 - ✔ tabela: quem passou dispara para receber de volta
 - ✔ tabela: o passador corre para o espaço
 - ✔ bola aérea ao alcance: aviso CHUTE! e botão piscando
 - ✔ MARCAR colado no adversário dá o bote
 - ✔ troca automática passa o controle para quem está perto da bola
--   registro de toques: pass:on shoot:on shoot:on lob:on trick:on sprint:on fire:off hint fire:on pass:on tackle:on press:on pass:on pass:on shoot:on trick:on trick:off hint trick:off hint trick:off hint trick:off hint sprint:on shoot:on pass:on lob:on pass:on press:on
+-   registro de toques: pass:on shoot:on shoot:on lob:on trick:on sprint:on fire:off hint fire:on pass:on tackle:on press:on pass:on shoot:on trick:on trick:off hint trick:off hint trick:on trick:off hint sprint:on shoot:on pass:on lob:on pass:on pass:on press:on
 
 Capturas de tela das suítes em `docs/qa/`.
