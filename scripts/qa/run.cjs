@@ -551,10 +551,12 @@ const SUITES = {
     await g.waitFor(() => document.getElementById('touch').classList.contains('atk'), null, 20000).catch(() => {});
     await sleep(500);
     const sh = await g.center('#touch .b-shoot');
+    const n0 = await g.ev(() => window.__game.touch.log.length);
     await g.touch('touchStart', [{ x: 240, y: 270, id: 1 }, { x: sh.x, y: sh.y, id: 2 }]);
     await sleep(250);
-    const both = await g.ev(() => { const i = window.__game.input; return { held: i.held('kb', 'shoot'), mx: i.state('kb').mx }; });
-    check(both.held && both.mx > 0.5, 'multitoque: joystick + CHUTE ao mesmo tempo', n);
+    // a CPU pode roubar a bola nesse meio-tempo e o layout mudar: vale qualquer botão acionado pelo 2º dedo
+    const both = await g.ev((n0) => { const i = window.__game.input; return { btn: window.__game.touch.log.slice(n0).join(','), mx: i.state('kb').mx }; }, n0);
+    check(both.btn.length > 0 && both.mx > 0.5, `multitoque: joystick + botão ao mesmo tempo (${both.btn})`, n);
     await g.touch('touchEnd', []);
     await sleep(300);
     const rel = await g.ev(() => { const i = window.__game.input; return { held: i.held('kb', 'shoot'), mx: i.state('kb').mx }; });
@@ -620,7 +622,8 @@ const SUITES = {
       m.sp = null; m.state = 'play'; m.stateT = 0; m.paused = false;
       // cancela gols/replays agendados por chutes de testes anteriores (senão a cena muda no meio do teste)
       m.timers = []; m.hud.cinema(false); m.hud.show(true); m.replay?.stop?.(); m.slowmo = 1;
-      for (const p of m.all) { p.kick = null; p.stun = 0; p.sliding = 0; p.vel.set(0, 0, 0); }
+      for (const p of m.all) { p.kick = null; p.stun = 0; p.sliding = 0; p.vel.set(0, 0, 0); p.tackleCd = 0; p.runT = 0; p.protectT = 0; }
+      m.clock = 10; // o relógio não pode chegar ao intervalo no meio dos testes
       // adversários longe (exceto no cenário de defesa)
       opp.field.forEach((o, i) => { if (!o.isGK) { o.pos.set(-dir * 14, 0, -8 + i * 5); o.sync(); } });
       const me = me0;
@@ -630,6 +633,8 @@ const SUITES = {
       if (kind === 'sup') { const mate = tm.field.find((x) => x !== me && !x.isGK); mate.pos.set(-dir * 6, 0, 3); mate.sync(); m.takeBall(mate); }
       for (const p of m.all) if (p.device === 'qa') p.device = null;
       // adversário com a bola "congelado" (sem IA) para o teste não depender do que a CPU decide
+      // na defesa, meus companheiros ficam longe (senão um carrinho deles vira falta/cobrança no meio do teste)
+      if (kind === 'def') tm.field.forEach((x, i) => { if (x !== me0 && !x.isGK) { x.pos.set(-dir * 12, 0, -9 + i * 6); x.sync(); } });
       if (kind === 'def') { const o = opp.field.find((x) => !x.isGK); o.pos.set(dir * 2.2, 0, 0.4); o.vel.set(0, 0, 0); o.sync(); m.takeBall(o); o.device = 'qa'; o.protectT = 0; }
       if (kind === 'deffar') { const o = opp.field.find((x) => !x.isGK); o.pos.set(dir * 9, 0, 4); o.sync(); m.takeBall(o); }
       if (b.owner) b.pos.copy(b.owner.pos).addScaledVector(b.owner.forward, 0.45).setY(0.11);
@@ -757,6 +762,26 @@ const SUITES = {
     check(three.mx > 0.5 && three.run && three.shoot, `três dedos: joystick + CORRER + CHUTE (${JSON.stringify(three)})`, n);
     await sleep(300);
     check(await g.ev(() => !window.__game.input.held('kb', 'sprint') && !window.__game.input.held('kb', 'shoot')), 'soltar todos os dedos solta tudo', n);
+    // ---- passe no pé (estilo PES/FIFA): o recebedor não precisa ir buscar a bola
+    const feet = async (btn, label, maxMove) => {
+      await scene('atk'); await waitMode('atk');
+      const info = await g.ev(() => { const m = window.__game.flow.match, me = window.__qaMe, d = me.team.dir;
+        const mate = me.team.field.find((x) => x !== me && !x.isGK);
+        for (const x of me.team.field) if (x !== me && x !== mate && !x.isGK) { x.pos.set(-d * 10, 0, 10); x.sync(); }
+        mate.pos.set(d * 7, 0, 2.5); mate.vel.set(0, 0, 0); mate.sync(); me.yaw = Math.atan2(d, 0); me.sync();
+        window.__qaMate = mate; window.__qaMate0 = mate.pos.clone(); return mate.data.id; });
+      await tapBtn(btn);
+      // mede a partir do momento do passe (antes disso o companheiro ainda podia estar se desmarcando)
+      await until(() => window.__game.flow.match.passTo === window.__qaMate, null, 10000);
+      await g.ev(() => { window.__qaMate0 = window.__qaMate.pos.clone(); });
+      const got = await until(() => window.__game.flow.match.ball.owner === window.__qaMate, null, 30000);
+      const moved = await g.ev(() => window.__qaMate.pos.distanceTo(window.__qaMate0));
+      check(got && moved < maxMove, `${label}: chega no pé do companheiro (ele andou ${moved.toFixed(2)} m depois do passe)`, n);
+      void info;
+    };
+    await feet('b-pass', 'PASSE rasteiro', 0.5);
+    await feet('b-lob', 'LENÇOL', 0.8);
+
     // ---- jogabilidade nova
     await scene('atk'); await waitMode('atk');
     check(await g.ev(() => window.__qaMe.protectT > 0), 'proteção ao dominar a bola', n);
