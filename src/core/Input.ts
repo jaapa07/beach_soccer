@@ -1,3 +1,4 @@
+import { platform } from './Platform';
 import { settings } from './Save';
 
 export type Action = 'pass' | 'shoot' | 'lob' | 'trick' | 'sprint' | 'tackle' | 'fire' | 'pause';
@@ -24,6 +25,11 @@ class InputSys {
   private kbPrevR = false;
   private repeatT = 0;
   private heldDir = '';
+  /** joystick virtual da tela de toque (null = solto) */
+  private stick: { x: number; y: number } | null = null;
+  /** aparelho com tela de toque (iPhone/Android/iPad) */
+  /** versão Celular: controles de toque na tela */
+  readonly touch = platform.mobile;
 
   constructor() {
     addEventListener('keydown', (e) => {
@@ -35,6 +41,13 @@ class InputSys {
     addEventListener('keyup', (e) => this.down.delete(e.code));
     addEventListener('blur', () => { this.down.clear(); this.tapped.clear(); });
   }
+
+  /** Tecla virtual (botões de toque): entra no mesmo fluxo do teclado, inclusive toques rápidos. */
+  virtualKey(code: string, isDown: boolean) {
+    if (isDown) { this.down.add(code); this.tapped.add(code); } else this.down.delete(code);
+  }
+  /** Joystick virtual: vetor (-1..1) ou null ao soltar. */
+  setStick(v: { x: number; y: number } | null) { this.stick = v; }
 
   devices(): DeviceId[] {
     const out: DeviceId[] = ['kb'];
@@ -90,6 +103,13 @@ class InputSys {
       if (this.down.has(K.down) || this.down.has('ArrowDown')) my += 1;
       const l = Math.hypot(mx, my) || 1;
       for (const a of ACTIONS) b[a] = has(K[a]);
+      // joystick de toque: direção analógica; empurrado até a borda = corrida automática
+      if (this.stick && Math.hypot(this.stick.x, this.stick.y) > 0.15) {
+        const m = Math.min(1, Math.hypot(this.stick.x, this.stick.y));
+        const ang = Math.atan2(this.stick.y, this.stick.x);
+        if (m > 0.93) b.sprint = true;
+        return { mx: Math.cos(ang) * Math.min(1, m * 1.15), my: Math.sin(ang) * Math.min(1, m * 1.15), buttons: b };
+      }
       if (this.down.has('ShiftRight')) b.sprint = true;
       return { mx: mx / l, my: my / l, buttons: b };
     }

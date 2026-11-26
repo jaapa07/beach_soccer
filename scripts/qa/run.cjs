@@ -1,4 +1,4 @@
-// QA ponta a ponta do AREIA QUENTE. Uso: npm run build && node scripts/qa/run.cjs [suite,suite]
+// QA ponta a ponta do REI DA PRAIA. Uso: npm run build && node scripts/qa/run.cjs [suite,suite]
 // Gera docs/QA.md com o resultado de cada suíte e as anomalias detectadas pelo monitor de invariantes.
 const fs = require('fs');
 const path = require('path');
@@ -492,6 +492,117 @@ const SUITES = {
     await g.shot('mobile_match');
     await g.page.setViewportSize({ width: 800, height: 450 });
   },
+
+  /** iPhone deitado: só toque, sem teclado. Do título até jogar com joystick/botões, pausa e aviso de girar. */
+  async iphone(g, n) {
+    const tap = async (sel) => { const c = await g.center(sel); if (!c) throw new Error('não achei ' + sel); await g.page.touchscreen.tap(c.x, c.y); };
+    const noOverflow = () => g.ev(() => document.documentElement.scrollWidth <= innerWidth + 1 && document.documentElement.scrollHeight <= innerHeight + 1);
+    check(await g.ev(() => window.__game.input.touch && !!document.getElementById('touch')), 'detecta tela de toque e cria os controles', n);
+    check(await g.ev(() => document.querySelector('.press').textContent.includes('TOQUE')), 'título pede "TOQUE PARA COMEÇAR"', n);
+    check(await g.ev(() => document.querySelector('.plat')?.textContent === 'VERSÃO CELULAR'), 'título mostra "VERSÃO CELULAR"', n);
+    await g.shot('iphone_title');
+    await tap('.title-screen'); await g.waitScene('menu');
+    check(true, 'toque no título abre o menu', n);
+    check(await noOverflow(), 'menu sem rolagem da página', n);
+    await g.shot('iphone_menu');
+    await tap('.menu .btn'); await g.waitScene('teams');
+    check(true, 'Amistoso vai direto para a seleção de times (sem tela de controles)', n);
+    const go = await g.center('.tbar .go');
+    check(go && go.vis && go.y + go.h / 2 <= 391 && go.x + go.w / 2 <= 845, 'botão COMEÇAR visível na tela', n);
+    // trocar o time tocando nas setas
+    const before = await g.ev(() => window.__game.flow.setup.home.id);
+    await tap('.tcard.l .arrow[data-d="1"]'); await sleep(400);
+    check((await g.ev(() => window.__game.flow.setup.home.id)) !== before, 'toque na seta troca a seleção', n);
+    check(await noOverflow(), 'seleção de times cabe na tela', n);
+    await g.shot('iphone_teams');
+    await g.ev(() => { window.__game.flow.setup.arena = 'copacabana'; });
+    await tap('.tbar .go');
+    await g.waitFor(() => window.__game.flow.scene === 'match' && window.__game.flow.match, null, 180000);
+    check(true, 'COMEÇAR inicia a partida', n);
+    await g.waitFor(() => document.querySelector('#touch .t-skip.on'), null, 60000);
+    check(true, 'botão PULAR aparece na apresentação', n);
+    for (let i = 0; i < 12 && (await g.ev(() => window.__game.flow.match.state)) === 'intro'; i++) { await tap('#touch .t-skip'); await sleep(700); }
+    check((await g.ev(() => window.__game.flow.match.state)) !== 'intro', 'PULAR encerra a apresentação', n);
+    // saque: o jogador humano toca em PASSE (o botão pisca)
+    await g.speed(6);
+    await g.waitFor(() => ['kickoff', 'play'].includes(window.__game.flow.match.state), null, 90000);
+    await g.speed(1);
+    if ((await g.ev(() => window.__game.flow.match.state)) === 'kickoff') {
+      await g.waitFor(() => document.getElementById('touch').classList.contains('wait') || window.__game.flow.match.state === 'play', null, 30000).catch(() => {});
+      check(await g.ev(() => document.getElementById('touch').classList.contains('wait') || window.__game.flow.match.state === 'play'), 'no saque o botão PASSE pisca', n);
+      for (let i = 0; i < 8 && (await g.ev(() => window.__game.flow.match.state)) === 'kickoff'; i++) { await tap('#touch .b-pass'); await sleep(600); }
+    }
+    check(await waitPlay(g), 'bola em jogo', n);
+    check(await g.ev(() => { const t = document.getElementById('touch'); return t.classList.contains('on') && !t.classList.contains('cine'); }), 'joystick e botões visíveis durante o jogo', n);
+    const btnsIn = await g.ev(() => [...document.querySelectorAll('#touch .t-btn')].filter((b) => +getComputedStyle(b).opacity > 0.5).every((b) => { const r = b.getBoundingClientRect(); return r.width >= 40 && r.left >= 0 && r.right <= innerWidth + 1 && r.top >= 0 && r.bottom <= innerHeight + 1; }));
+    check(btnsIn, 'todos os botões dentro da tela e com no mínimo 40 px', n);
+    await g.shot('iphone_match');
+    // joystick: arrasta o dedo para a direita e segura
+    const me0 = await g.ev(() => { const p = window.__game.flow.match.all.find((x) => x.device === 'kb'); return p && { x: p.pos.x, z: p.pos.z }; });
+    check(!!me0, 'jogador controlado pela tela de toque', n);
+    await g.touch('touchStart', [{ x: 150, y: 290, id: 1 }]);
+    for (let k = 1; k <= 5; k++) { await g.touch('touchMove', [{ x: 150 + k * 18, y: 290 - k * 4, id: 1 }]); await sleep(60); }
+    const stick = await g.ev(() => { const s = window.__game.input.state('kb'); return { mx: s.mx, my: s.my }; });
+    check(stick.mx > 0.5, `joystick move para a direita (mx=${stick.mx.toFixed(2)})`, n);
+    await g.shot('iphone_stick');
+    // segundo dedo no CHUTE enquanto o primeiro segura o joystick (multitoque) — em modo ATAQUE
+    await g.ev(() => { const m = window.__game.flow.match; m.takeBall(m.all.find((x) => x.device === 'kb')); });
+    await g.waitFor(() => document.getElementById('touch').classList.contains('atk'), null, 20000).catch(() => {});
+    await sleep(500);
+    const sh = await g.center('#touch .b-shoot');
+    await g.touch('touchStart', [{ x: 240, y: 270, id: 1 }, { x: sh.x, y: sh.y, id: 2 }]);
+    await sleep(250);
+    const both = await g.ev(() => { const i = window.__game.input; return { held: i.held('kb', 'shoot'), mx: i.state('kb').mx }; });
+    check(both.held && both.mx > 0.5, 'multitoque: joystick + CHUTE ao mesmo tempo', n);
+    await g.touch('touchEnd', []);
+    await sleep(300);
+    const rel = await g.ev(() => { const i = window.__game.input; return { held: i.held('kb', 'shoot'), mx: i.state('kb').mx }; });
+    check(!rel.held && Math.abs(rel.mx) < 0.01, 'soltar os dedos solta joystick e botão', n);
+    await g.speed(4); await sleep(1500); await g.speed(1);
+    const me1 = await g.ev(() => { const p = window.__game.flow.match.all.find((x) => x.device === 'kb'); return p && { x: p.pos.x, z: p.pos.z }; });
+    check(me1 && Math.hypot(me1.x - me0.x, me1.z - me0.z) > 0.5, 'jogador se moveu com o joystick', n);
+    // ATAQUE x DEFESA: entrega a bola para mim e depois para o adversário e confere o layout dos botões
+    const layout = () => g.ev(() => { const r = document.getElementById('touch'); const vis = (c) => getComputedStyle(document.querySelector('#touch .' + c)).opacity > 0.5;
+      return { atk: r.classList.contains('atk'), def: r.classList.contains('def'), pass: document.querySelector('#touch .b-pass span').textContent,
+        tackle: vis('b-tackle'), trick: vis('b-trick'), lob: vis('b-lob'), shoot: vis('b-shoot'), big: document.querySelector('#touch .b-tackle').getBoundingClientRect().width }; });
+    await g.ev(() => { const m = window.__game.flow.match; m.takeBall(m.all.find((x) => x.device === 'kb')); });
+    await g.waitFor(() => document.getElementById('touch').classList.contains('atk'), null, 20000).catch(() => {});
+    await sleep(700);
+    const A1 = await layout();
+    check(A1.atk && A1.pass === 'PASSE' && A1.trick && A1.lob && !A1.tackle, `ATAQUE: PASSE/CHUTE/LENÇOL/FIRULA, sem CARRINHO (${JSON.stringify(A1)})`, n);
+    await g.shot('iphone_ataque');
+    await g.ev(() => { const m = window.__game.flow.match; const me = m.all.find((x) => x.device === 'kb'); const op = m.all.find((x) => x.team !== me.team && x.onField && !x.isGK); m.takeBall(op); });
+    await g.waitFor(() => document.getElementById('touch').classList.contains('def'), null, 20000).catch(() => {});
+    await sleep(700);
+    const D1 = await layout();
+    check(D1.def && D1.pass === 'TROCAR' && D1.tackle && !D1.trick && !D1.lob && D1.big > A1.big, `DEFESA: CARRINHO grande, TROCAR, sem FIRULA/LENÇOL (${JSON.stringify(D1)})`, n);
+    await g.shot('iphone_defesa');
+    // pausa pelo botão e volta tocando em "Continuar"
+    await g.waitFor(() => document.querySelector('#touch .t-pause.on'), null, 60000);
+    await tap('#touch .t-pause');
+    await g.waitFor(() => window.__game.flow.match.paused, null, 20000);
+    check(await g.ev(() => !document.getElementById('touch').classList.contains('on')), 'pausa esconde os controles de toque', n);
+    await g.shot('iphone_pause');
+    await tap('.overlay .btn');
+    await g.waitFor(() => !window.__game.flow.match.paused, null, 20000);
+    check(await g.ev(() => document.getElementById('touch').classList.contains('on')), 'continuar devolve os controles', n);
+    // retrato: aviso de girar
+    await g.page.setViewportSize({ width: 390, height: 844 }); await sleep(800);
+    check(await g.ev(() => getComputedStyle(document.getElementById('rotate')).display !== 'none'), 'na vertical aparece "Gire o aparelho"', n);
+    await g.shot('iphone_portrait');
+    await g.page.setViewportSize({ width: 844, height: 390 }); await sleep(500);
+    check(await g.ev(() => getComputedStyle(document.getElementById('rotate')).display === 'none'), 'na horizontal o aviso some', n);
+    // opções da versão celular: tamanho dos botões e vibração, sem remapear teclas
+    await g.ev(() => { const f = window.__game.flow; f.mainMenu(); f.options(); }); await g.waitScene('options');
+    const op = await g.ev(() => ({ txt: document.querySelector('.options').textContent, keys: !!document.querySelector('.options .keys') }));
+    check(op.txt.includes('Botões na tela') && op.txt.includes('Vibração') && op.txt.includes('Versão do jogo') && !op.keys, 'opções do celular: botões, vibração, troca de versão; sem teclas', n);
+    await g.shot('iphone_options');
+    // a página da versão PC no mesmo aparelho não mostra controles de toque
+    await g.page.goto('http://game.local/pc.html');
+    await g.waitFor(() => window.__game?.flow.scene === 'title', null, 180000);
+    const pc = await g.ev(() => ({ touch: window.__game.input.touch, overlay: !!document.getElementById('touch'), plat: document.querySelector('.plat')?.textContent }));
+    check(!pc.touch && !pc.overlay && pc.plat === 'VERSÃO PC', 'pc.html: versão PC sem controles de toque', n);
+  },
 };
 
 (async () => {
@@ -502,7 +613,7 @@ const SUITES = {
     let g;
     console.log('▶', name);
     try {
-      g = await open({ gamepads: name === 'twoplayers' ? 2 : 0 });
+      g = await open({ gamepads: name === 'twoplayers' ? 2 : 0, iphone: name === 'iphone' });
       await SUITES[name](g, notes);
     } catch (e) {
       notes.push('✘ exceção: ' + String(e.message || e).split('\n')[0]); notes.failed = true;

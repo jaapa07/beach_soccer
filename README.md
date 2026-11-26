@@ -1,4 +1,4 @@
-# AREIA QUENTE — Futebol de Praia
+# REI DA PRAIA — Futebol de Praia
 
 Futebol de praia arcade 3D, 5 contra 5, feito em **Three.js + TypeScript** a partir do `PROMPT_MESTRE.md`.
 Jogadas de efeito (chapéu, bicicleta, tesoura, voleio, peixinho) geram **pontos de estilo** que enchem o
@@ -15,6 +15,16 @@ Todas as capturas estão em [`docs/screenshots/`](docs/screenshots).
 ## Jogar online
 
 **https://jaapa07.github.io/beach_soccer/** — publicado pelo GitHub Actions (`.github/workflows/deploy.yml`) a cada push na `main`.
+
+O jogo tem **duas versões**, com configurações salvas separadamente:
+
+| Versão | Link direto | Como joga | Padrões |
+|---|---|---|---|
+| **PC** | https://jaapa07.github.io/beach_soccer/pc.html | teclado ou controle (até 2 jogadores locais), teclas remapeáveis | gráfico alto, 3 min por período |
+| **Celular** (iPhone/Android) | https://jaapa07.github.io/beach_soccer/celular.html | joystick e botões na tela, multitoque | gráfico médio (sombras leves), 2 min por período, tamanho dos botões e vibração nas Opções |
+
+O link principal escolhe sozinho (tela de toque → Celular). Dá para trocar em *Opções → Versão do jogo*
+ou com `?plataforma=pc` / `?plataforma=celular`.
 Para ativar (uma única vez): no repositório, *Settings → Pages → Build and deployment → Source: **GitHub Actions***.
 
 ## Como rodar
@@ -52,6 +62,24 @@ npm run build
 Finalizações são contextuais: com a bola no alto, **K** vira cabeçada (bola alta), **bicicleta** (de costas para o gol),
 **tesoura** (gol de lado), **voleio** ou **peixinho** (correndo para uma bola baixa). As teclas podem ser remapeadas em *Opções*.
 Na tela "Quem joga com quem?" cada teclado/controle é movido para CASA, CPU ou FORA (até 2 jogadores locais).
+
+### iPhone / Android (tela de toque)
+
+Abra o link no Safari **com o aparelho deitado**. Para tela cheia (sem a barra do Safari): botão Compartilhar → **Adicionar à Tela de Início**
+e abra pelo ícone.
+
+| Na tela | Faz |
+|---|---|
+| Joystick (toque em qualquer ponto da metade esquerda) | mover · empurrar até a borda = correr |
+| CHUTE (segure para mais força) · PASSE/TROCAR · LENÇOL · FIRULA · CARRINHO · CORRER · FOGO | as mesmas ações do teclado |
+| ❚❚ (canto superior) | pausa |
+| PULAR ▶▶ | pula apresentação, replay e intervalo |
+
+Os botões **mudam entre ATAQUE e DEFESA**: com a bola do seu time aparecem CHUTE (grande), PASSE, LENÇOL e FIRULA;
+quando o adversário tem a bola o botão grande vira **CARRINHO**, PASSE vira **TROCAR** (pega o jogador mais perto) e CHUTE sobe
+para finalizações de bola alta. Goleiro com a bola na mão: CHUTE vira LANÇAR. Um selo ATAQUE/DEFESA mostra o modo atual.
+Funciona com vários dedos ao mesmo tempo (joystick + chute). No saque e nas cobranças os botões PASSE/CHUTE piscam.
+As telas que no PC usam ENTER/ESC ganham botões **VOLTAR / COMEÇAR**; com o aparelho em pé aparece "Gire o aparelho".
 
 ## O que tem
 
