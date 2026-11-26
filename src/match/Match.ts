@@ -21,6 +21,8 @@ export type MatchMode = 'friendly' | 'cup' | 'training' | 'mini';
 export type MatchOpts = {
   home: TeamData; away: TeamData; homeKit: 'home' | 'away'; awayKit: 'home' | 'away'; arena: string;
   homeDevices: DeviceId[]; awayDevices: DeviceId[]; mode: MatchMode; label?: string; noDraw?: boolean; mini?: MiniKind;
+  /** jogadores por time contando o goleiro (5x5 padrão; 4x4 e 3x3 no amistoso/copa) */
+  size?: 3 | 4 | 5;
 };
 export type MatchResult = { home: Team; away: Team; winner: Team | null; pens: boolean; extra: boolean; mom: Player };
 
@@ -101,7 +103,8 @@ export class Match {
     const diff = settings.data.difficulty;
     for (const tm of [home, away]) tm.speedMul = tm.human ? 1 : [0.9, 1.0, 1.07][diff];
     this.teams = [home, away];
-    home.build(); away.build();
+    const size = opts.mini || opts.mode === 'training' ? 5 : opts.size ?? 5;
+    home.build(size); away.build(size);
     this.kickoffTeam = home;
     this.ball = new Ball();
     this.ref = new Athlete(Math.random() < 0.5 ? 'textures/kits/referee_0.webp' : 'textures/kits/referee_1.webp');
@@ -176,13 +179,13 @@ export class Match {
         this.cam.playPath([{ p: new THREE.Vector3(-70, 45, 70), l: new THREE.Vector3(0, 0, 0), t: 0 }, { p: new THREE.Vector3(10, 28, 55), l: new THREE.Vector3(0, 4, -10), t: 4.2 }]);
         this.hud.lower(null);
       } else if (step === 1) {
-        const p = this.teams[0].players[4];
+        const p = this.star(this.teams[0]);
         p.pos.set(-4, 0, 3); p.yaw = 0.4; p.ath.play('juggle', 0); p.sync();
         this.ball.place(-3.6, 3.5, 1.0);
         this.cam.playPath([{ p: new THREE.Vector3(-1.5, 1.6, 7.5), l: new THREE.Vector3(-4, 1.2, 3), t: 0 }, { p: new THREE.Vector3(-6.5, 1.4, 7.0), l: new THREE.Vector3(-4, 1.3, 3), t: 4.2 }]);
         this.hud.lower(p, 'Aquecimento');
       } else if (step === 2) {
-        const p = this.teams[1].players[4];
+        const p = this.star(this.teams[1]);
         p.pos.set(5, 0, 2); p.yaw = -0.5; p.ath.play('stretch', 0); p.sync();
         this.cam.playPath([{ p: new THREE.Vector3(8.5, 2.2, 7.5), l: new THREE.Vector3(5, 1.0, 2), t: 0 }, { p: new THREE.Vector3(3, 1.8, 7.8), l: new THREE.Vector3(5, 1.1, 2), t: 4.2 }]);
         this.hud.lower(p, 'Aquecimento');
@@ -231,7 +234,7 @@ export class Match {
     this.formation(team, true);
     const taker = team.players.find((p) => p.slot === 4 && p.onField) ?? team.field[1];
     this.ball.place(0, 0);
-    this.ball.owner = null;
+    this.ball.owner = null; this.ball.held = false;
     this.sp = { kind: 'kickoff', team, taker, spot: v3(), t: 0 };
     taker.pos.set(-team.dir * 0.45, 0, 0); taker.yaw = Math.atan2(team.dir, 0); taker.sync();
     this.giveControl(taker);
@@ -256,6 +259,9 @@ export class Match {
       }
     }
   }
+
+  /** o craque do time na apresentação (pivô; nos formatos menores, o último titular) */
+  star(tm: Team) { return tm.players.find((p) => p.slot === 4) ?? tm.players[tm.players.length - 1]; }
 
   giveControl(p: Player) {
     const tm = p.team;
@@ -343,10 +349,21 @@ export class Match {
     // goleiro humano segurando a bola
     if (this.ball.held && this.ball.owner === p) {
       p.holdT += dt;
-      if (mv.lengthSq() > 0.01) p.faceTo(mv, dt, 8);
-      if (input.pressed(dev, 'pass')) this.doPass(p, this.aimOf(dev, mv), false);
+      // anda com a bola na mão dentro da área (antes ficava parado e parecia que o jogo tinha travado)
+      if (mv.lengthSq() > 0.01) {
+        p.faceTo(mv, dt, 8);
+        p.vel.lerp(mv.clone().multiplyScalar(3.2), 1 - Math.exp(-8 * dt));
+        const gx = this.ownGoalX(tm);
+        const nx = p.pos.x + p.vel.x * dt, nz = p.pos.z + p.vel.z * dt;
+        if (Math.abs(nx - gx) > FIELD.PEN - 0.5 || Math.sign(nx - gx) === Math.sign(gx) && Math.abs(nx) > FIELD.HL) p.vel.x = 0;
+        if (Math.abs(nz) > FIELD.HW - 1) p.vel.z = 0;
+      } else p.vel.multiplyScalar(Math.exp(-10 * dt));
+      this.hud.msg(input.touch ? 'Goleiro com a bola: toque PASSE ou LANÇAR' : 'Goleiro com a bola: J passa · segure K para lançar');
+      if (input.pressed(dev, 'pass')) { this.doPass(p, this.aimOf(dev, mv), false); this.hud.msg(null); }
       else if (input.held(dev, 'shoot')) p.shootHold = Math.min(1, p.shootHold + dt * 1.25);
-      else if (input.released(dev, 'shoot')) { this.longThrow(p, p.shootHold); p.shootHold = 0; }
+      else if (input.released(dev, 'shoot')) { this.longThrow(p, Math.max(0.5, p.shootHold)); p.shootHold = 0; this.hud.msg(null); }
+      // regra dos 6 segundos: se o jogador não repõe, o goleiro toca sozinho para o companheiro mais livre
+      else if (p.holdT > 6 && !(p.kick && !p.kick.done)) { this.doPass(p, null, false); this.hud.msg(null); }
       return;
     }
     // ações
@@ -535,7 +552,8 @@ export class Match {
 
   doTackle(p: Player, sprint: boolean) {
     if (p.tackleCd > 0 || p.stun > 0 || p.sliding > 0) return;
-    const carrier = this.ball.owner && this.ball.owner.team !== p.team ? this.ball.owner : null;
+    // goleiro com a bola na mão não pode ser desarmado (antes a dividida soltava a bola "presa" no ar e o jogo travava)
+    const carrier = this.ball.owner && this.ball.owner.team !== p.team && !(this.ball.held && this.ball.owner.isGK) ? this.ball.owner : null;
     const d = carrier ? carrier.pos.distanceTo(p.pos) : this.ball.pos.distanceTo(p.pos);
     if (sprint || d > 1.4) {
       // carrinho
@@ -558,7 +576,7 @@ export class Match {
   }
 
   private looseBall(from: Player, push: THREE.Vector3) {
-    this.ball.owner = null;
+    this.ball.owner = null; this.ball.held = false;
     this.ball.vel.copy(push).setY(1.2);
     from.cooldown = 0.6;
   }
@@ -836,8 +854,11 @@ export class Match {
       if (live) {
         // lista fixada antes: se TROCAR/passe mudar o controle neste quadro, o novo jogador não relê o mesmo botão
         // (antes o controle ia e voltava no mesmo quadro e o TROCAR às vezes "não funcionava")
-        if (tm.devices.length) for (const p of tm.players.filter((x) => x.device && x.onField)) if (p.device) this.humanUpdate(p, dt);
-        teamAI(this, tm, dt);
+        // disputa de pênaltis: só cobrador e goleiro agem (antes os jogadores de linha voltavam a jogar depois de uma defesa)
+        if (!this.pens) {
+          if (tm.devices.length) for (const p of tm.players.filter((x) => x.device && x.onField)) if (p.device) this.humanUpdate(p, dt);
+          teamAI(this, tm, dt);
+        } else if (this.sp?.taker?.team === tm && this.sp.taker.device && this.state === 'penalties') this.humanUpdate(this.sp.taker, dt);
         gkAI(this, tm, dt);
       }
     }
@@ -969,7 +990,8 @@ export class Match {
       if (e.type === 'goal' && this.state === 'play') this.goal(e.p.x > 0 ? 1 : -1, e.p);
       if (e.type === 'board') audio.play('body', 0.4);
     }
-    if (this.pens && this.shotPen && this.stateT > 0.4 && (b.held || (b.speed < 1.2 && !b.inGoal) || (b.owner && b.owner.isGK))) {
+    if (this.pens && this.shotPen) this.pens.t += dt;
+    if (this.pens && this.shotPen && this.stateT > 0.4 && (b.held || (b.speed < 1.2 && !b.inGoal) || (b.owner && b.owner.isGK) || (this.pens.t > 4 && !b.inGoal))) { // pens.t zera no início de cada cobrança
       this.shotPen = false; this.state = 'penalties'; audio.crowdReact('ooh', 1); this.later(0.9, () => this.penResult(false)); return;
     }
     if (this.state !== 'play') return;
@@ -979,11 +1001,14 @@ export class Match {
       if (this.pendingSombrero.t <= 0) this.pendingSombrero = null;
       else if (b.owner === this.pendingSombrero.p) { const p = this.pendingSombrero.p; this.addStyle(p.team, 'sombrero_flick', p, t('sombrero')); this.hud.worldPop(t('sombrero'), p.pos.clone().setY(2.5), this.world.camera); this.onEvent?.('sombrero', p); if (this.opts.mode === 'training') { this.training.sombrero++; this.onEvent?.('training', undefined, this.training); } this.pendingSombrero = null; }
     }
+    // rede de segurança: bola "na mão" sem ninguém segurando nunca pode ficar congelada
+    if (b.held && (!b.owner || !b.owner.onField)) { b.held = false; b.owner = null; }
     // domínio da bola solta
     if (!b.owner && !b.held && !b.inGoal) {
       let best: Player | null = null, bd = 1e9;
       for (const p of this.onField) {
         if (p.cooldown > 0 || p.stun > 0 || p.sliding > 0 || (p.kick && !p.kick.done)) continue;
+        if (this.pens && !p.isGK) continue; // na disputa de pênaltis ninguém de linha domina a bola
         const d = Math.hypot(b.pos.x - p.pos.x, b.pos.z - p.pos.z);
         const recv = p === this.passTo;
         const reachH = p.isGK && this.inOwnArea(p, b.pos) ? 2.4 : p.juggling > 0 ? 0.25 : recv ? 1.25 : 0.75;
@@ -1434,7 +1459,7 @@ export class Match {
     else h.passTarget(null, cam);
     const shooter = humans.find((p) => p.shootHold > 0) ?? null;
     h.powerBar(shooter, shooter?.shootHold ?? 0, cam);
-    if (this.state === 'play' && this.stateT > 2.5 && !this.teams.some((tm) => tm.human && tm.heat >= 1 && tm.fire <= 0)) h.msg(null);
+    if (this.state === 'play' && this.stateT > 2.5 && !this.teams.some((tm) => tm.human && tm.heat >= 1 && tm.fire <= 0) && !(this.ball.held && this.ball.owner?.device)) h.msg(null);
   }
 
   // ------------------------------------------------------------------ treino
